@@ -17,6 +17,7 @@ description: Use when on Arch Linux + Hyprland (or a minimal Wayland WM with wof
 | 全局无感(含 docker/系统服务) | TUN 模式 | 二 |
 | 指定浏览器走代理 | 启动参数 `--proxy-server` | 三 |
 | 指定终端走代理 | `http_proxy` 等环境变量 | 三 |
+| Electron 应用(IDE/Discord)走代理 | flags.conf / wrapper 脚本 | 三 |
 | TUI 程序从 wofi 启动没反应 | `Terminal=true` 桥接 | 四 |
 | Hyprland 改快捷键不生效 | 权威配置是 `hyprland.lua` | 四 |
 
@@ -182,6 +183,34 @@ exec kitty --title 'kitty (proxy)'
 ```
 `chmod +x` 后,绑一个快捷键(见四章)或做个 wofi 入口(见四章)来调用它。
 
+### 3.4 Electron 应用(vesktop / VS Code / Obsidian / Antigravity 等)
+Electron 自带 Chromium,所以也吃 `--proxy-server`。三种粒度,从省事到彻底:
+
+**A. flags 文件(该应用支持时最省事)** —— 有些应用的启动脚本会读自带的 flags 文件,每行一个 Chromium flag,任何方式启动都自动生效。先看 `/usr/bin/<app>` 启动脚本里有没有读 `*-flags.conf`。例如 vesktop 读 `~/.config/vesktop-flags.conf`:
+```
+--proxy-server=socks5://127.0.0.1:7897
+# 下一行:只要文字可不加;Discord 语音必加(强制 WebRTC/语音走代理)
+--force-webrtc-ip-handling-policy=disable_non_proxied_udp
+```
+⚠️ 这类文件**整行当一个 flag**(只跳过以 `#` 开头的行和空行),所以**注释必须单独成行**,不能写行内注释,否则 `#...` 会被拼进 flag 里导致失效;也别留**带缩进的空行**(会被当空参数传给 electron)。
+
+**B. 改 .desktop 加 --proxy-server(同 3.2)** —— 只改 `Exec`、保留其它字段。只覆盖 Chromium 自身的网络,不覆盖子进程。(要语音就把 WebRTC flag 也写进 `Exec=` 里。)
+
+**C. wrapper 启动脚本(env + --proxy-server,最彻底)** —— 仿 3.3 的 kitty-proxy,但因为是 Electron 再加 `--proxy-server`。**连应用 spawn 的子进程(`git clone`、装包、构建)也一起走代理**,对 IDE 最合适。Antigravity 用的就是这个(`/usr/local/bin/antigravity` 是 wrapper,`.desktop` 指向它):
+```sh
+#!/bin/sh
+# 放 /usr/local/bin/<app> 或 ~/.local/bin/<app>,让 .desktop 的 Exec 指向它
+P=http://127.0.0.1:7897
+export http_proxy=$P https_proxy=$P HTTP_PROXY=$P HTTPS_PROXY=$P
+export all_proxy=socks5://127.0.0.1:7897 ALL_PROXY=socks5://127.0.0.1:7897
+export no_proxy="localhost,127.0.0.1,::1" NO_PROXY="$no_proxy"
+exec /opt/<app>/<app> --proxy-server="$P" "$@"
+```
+
+> 选哪种:应用有 flags.conf → A;只想管界面网络 → B;是 IDE/会跑构建命令 → C。
+> C 里的 `no_proxy` 只放了回环(与真实 antigravity 一致);要放行内网网段就照 3.1 补 `10.0.0.0/8` 等。
+> Discord 类语音(UDP/WebRTC):加 `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`;还不通又不想 TUN → 透明代理(TPROXY → mihomo tproxy-port,按 cgroup/uid 只重定向该应用)。
+
 ---
 
 ## 四、Hyprland + wofi 落地(最容易踩的坑都在这)
@@ -251,6 +280,7 @@ Exec=kitty sh -ic 'yazi; exec $SHELL'
 | 大陆直连 | `GEOSITE,cn,DIRECT` + `GEOIP,CN,DIRECT`(需 geoip.dat/geosite.dat) |
 | 终端走代理 | `proxy_on`(env 变量)或 kitty-proxy 脚本 |
 | 浏览器走代理 | `--proxy-server="socks5://127.0.0.1:7897"` 启动参数 |
+| Electron 应用走代理 | flags.conf(vesktop)/ .desktop / wrapper(env+`--proxy-server`,最全) |
 | 加 Hyprland 快捷键 | 改 `hyprland.lua`,不是 `.conf`;`hyprctl reload` |
 | .desktop 路径 | `~` 在 `.conf` exec 不展开 → 用绝对路径 |
 | wofi 开 TUI 没反应 | 装 `xdg-terminal-exec`,或 `.desktop` 改 `Exec=kitty <app>` |
@@ -259,6 +289,7 @@ Exec=kitty sh -ic 'yazi; exec $SHELL'
 - `~/.config/hypr/hyprland.lua` —— Hyprland 权威配置(若存在)
 - `~/.config/hypr/hyprland.conf` —— 旧式,按键改了不生效时别在这改
 - `~/.local/bin/kitty-proxy` —— 带代理的终端启动脚本
+- `~/.config/vesktop-flags.conf` —— Electron 应用 flags 文件范例(vesktop)
 - `~/.local/share/applications/*.desktop` —— 分应用入口(覆盖系统同名)
 - clash-verge mixed-port 默认 **7897**
 - 镜像前缀:`ghfast.top` / `ghproxy.net` / `kkgithub.com`
@@ -273,4 +304,5 @@ Exec=kitty sh -ic 'yazi; exec $SHELL'
 | 系统代理开关没用 | 纯 WM 无系统代理 | 分应用配(三/四章) |
 | wofi 启动 TUI 没反应 | 没装 xdg-terminal-exec | 装它,或 `.desktop` 用 `kitty <app>` |
 | 挂了代理的 App 连不上网 | clash 没运行 | 先开 clash |
+| Discord 文字通但语音不通 | WebRTC/UDP 没走代理 | 加 `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`;还不通用 TPROXY |
 | 规则没分流 | geoip.dat/geosite.dat 缺失 | 下好放进数据目录 |
