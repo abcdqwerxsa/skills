@@ -61,19 +61,7 @@ Check available MCPs - if useful for research (searching docs, finding similar s
 
 ### What kind of skill is this?
 
-Once you understand the intent, it helps to know what *category* of skill you're building — the category shapes what content matters most. The Anthropic team's experience scaling hundreds of internal skills is that high-value skills cluster into a few recognizable types (drawn from "Lessons from building Claude Code"):
-
-- **Library & API reference** — how to correctly call a specific library/CLI/SDK, especially internal ones or public ones with trapdoor edge cases. Core content = code snippets + gotchas.
-- **Product verification** — how to test that a code change actually works (Playwright, tmux, smoke flows with an assertion at each step). *This category has the largest impact on agent output quality — when you're unsure where to invest polish, invest here.*
-- **Data fetching & analysis** — wire the agent into monitoring/analytics stacks (authenticated query tools, dashboard IDs, canonical SQL/workflows).
-- **Business process automation** — collapse a repeating team workflow into one instruction; usually keeps a log so the agent can reason across runs.
-- **Scaffolding & templates** — generate boilerplate that conforms to org conventions, with natural-language conditionals.
-- **Code quality & review** — enforce style/test norms; often spawns an adversarial reviewer subagent.
-- **CI/CD & deployment** — packaging, canary/release, smoke-after-deploy, auto-rollback on regression.
-- **Troubleshooting runbooks** — feed in an alert/symptom, correlate metrics + topology + history, output a structured diagnosis.
-- **Infrastructure operations** — routine maintenance; for destructive tasks, bake in strict guardrails and explicit confirmation.
-
-Two practical notes from that body of experience: (1) **verification skills punch above their weight** — they're worth disproportionate effort; (2) a skill that tries to span several of these at once tends to confuse the agent about when to trigger, and "everything for X" skills usually undertrigger. Aim for a single, sharp category, and split if the scope sprawls.
+It helps to know what *category* of skill you're building — it shapes what content matters most. For the nine-type taxonomy and why verification skills deserve disproportionate polish, read **`references/skill-categories.md`**. Short version: pick one sharp category — a skill spanning several tends to undertrigger.
 
 ### Write the SKILL.md
 
@@ -130,20 +118,7 @@ This goes without saying, but skills must not contain malware, exploit code, or 
 
 #### High-value content: what to actually put in the skill
 
-The folder's *shape* matters, but so does its *substance*. The Anthropic team's hard-won lesson from running hundreds of skills is that the highest-value content concentrates in a few patterns (from "Lessons from building Claude Code"). Bake these in as you draft:
-
-**Don't restate what the model already knows.** The model is already a strong general programmer with good code-search instincts — a skill that "teaches Python loops" is dead weight that just crowds the context. Spend your tokens on what the model *can't* infer: counter-intuitive internal conventions, non-obvious architecture constraints, hidden bugs. If a line would be true for any competent engineer reading the public docs, cut it.
-
-**Build a dense Gotchas/Pitfalls section — and keep feeding it.** The single most valuable part of most skills is the gotchas: the places real agents (and humans) got burned. Treat errors during your eval runs as raw material — when a test run trips on something non-obvious, distill the trap into a one-line anti-example and add it to the skill. Good gotchas are concrete and irreducible:
-
-> The subscriptions table is append-only. The row you want is the one with the max `version`, not the most recent `created_at`.
-> The API gateway calls this field `@request_id`, but the billing service calls it `trace_id`. Same value — map it.
-
-**Make config self-initializing, never hardcoded.** If the skill depends on a parameter (a Slack channel, a project ID, a region), don't bake the value — and never a secret — into the SKILL.md or a script. Drop a `config.json` placeholder in the skill directory and have the agent notice when it's missing and ask the user to fill it interactively. Secrets belong in environment variables or a secrets store, not in committed skill text.
-
-**Give the agent persistent memory across runs.** For skills that run repeatedly (standups, rollups, oncall checks), let the agent keep a small log/state file so it can compare against last time — "what did I already report yesterday?" — instead of redoing work from scratch. Write this state to `${CLAUDE_PLUGIN_DATA}` (the skill/plugin's writable data path), not the skill's own source directory, so installed skills stay read-only and upgrades don't clobber logs.
-
-**Mount session-scoped hooks for safety-sensitive skills.** For skills that touch destructive or production-critical operations, you can attach a `PreToolUse` hook that only lives while the skill is active — e.g. pause and demand confirmation when a command matches `rm -rf`, `DROP TABLE`, or a force-push to a production branch; or block edits to files outside a frozen scope while debugging. These hooks auto-unload when the skill ends, so they don't bleed into everyday work. Hook authoring is environment-specific, so check your runtime's hook docs rather than inventing a format here.
+The folder's *shape* matters, but so does its *substance*. Before drafting, read **`references/skill-content.md`** — it covers the five patterns that concentrate a skill's value (distilled from "Lessons from building Claude Code"): don't restate what the model already knows, build a dense Gotchas section fed from eval failures, self-initializing `config.json`, persistent memory via `${CLAUDE_PLUGIN_DATA}`, and session-scoped `PreToolUse` hooks.
 
 #### Writing Patterns
 
@@ -491,15 +466,7 @@ If you're in Cowork, the main things to know are:
 
 ## Distribution and governance
 
-Once a skill works, getting it into hands — and knowing whether it's actually used — is its own problem. The Anthropic team's pattern for this (again from "Lessons from building Claude Code"):
-
-**Two distribution modes.** Small teams check skills straight into the project repo under `.claude/skills/` so everyone in that repo gets them for free. As the number of skills and people grows, that bloats every workspace's context — at scale, move to a plugin marketplace so teammates install skills on demand and keep their working context lean.
-
-**Organic, not centrally-gated.** Rather than a review board approving every skill, let anyone drop a skill into a shared sandbox and self-promote it in a channel. When one proves broadly useful and gets real reuse, its author promotes it into the shared marketplace via PR. Skills earn their place through adoption, not permission.
-
-**Measure triggering to find dead skills.** A global `PreToolUse` hook can log which skills actually fire and how often — instrumentation, like product analytics. Comparing high-fire skills against near-zero-fire ones surfaces two failure modes cleanly: a skill that never triggers usually has a weak or misleading `description` (the model doesn't recognize when to use it — run the Description Optimization loop on it), while one that triggers but gets ignored is low practical value and a candidate for rework or retirement.
-
-This skill can't ship the marketplace or the global hook for you, but when you package a skill here, that's the lifecycle it's entering: write it small, let it prove itself, and use triggering data to decide what to keep.
+For getting skills into hands and knowing whether they're actually used — repo check-in vs. plugin marketplace, organic PR promotion, and measuring triggering with a global `PreToolUse` hook to find dead skills — read **`references/distribution.md`** (distilled from "Lessons from building Claude Code").
 
 ---
 
@@ -511,8 +478,7 @@ The agents/ directory contains instructions for specialized subagents. Read them
 - `agents/comparator.md` — How to do blind A/B comparison between two outputs
 - `agents/analyzer.md` — How to analyze why one version beat another
 
-The references/ directory has additional documentation:
-- `references/schemas.md` — JSON structures for evals.json, grading.json, etc.
+The references/ directory has additional documentation: `references/schemas.md` (eval JSON structures), `references/skill-categories.md` (nine skill types), `references/skill-content.md` (high-value content patterns), and `references/distribution.md` (distribution & measurement) — the last three are distilled from "Lessons from building Claude Code" and each is linked inline where relevant below.
 
 ---
 
